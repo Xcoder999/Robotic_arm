@@ -1,59 +1,155 @@
 #!/usr/bin/env pybricks-micropython
-from pybricks.hubs import EV3Brick
-from pybricks.ev3devices import (Motor, TouchSensor, ColorSensor,
-                                 InfraredSensor, UltrasonicSensor, GyroSensor)
+from pybricks.ev3devices import (Motor)
 from pybricks.parameters import Port, Stop, Direction, Button, Color
 from pybricks.tools import wait, StopWatch, DataLog
-from pybricks.robotics import DriveBase
-from pybricks.media.ev3dev import SoundFile, ImageFile
 
-#!/usr/bin/env pybricks-micropython
+import struct
 
-# Before running this program, make sure the client and server EV3 bricks are
-# paired using Bluetooth, but do NOT connect them. The program will take care
-# of establishing the connection.
+from pybricks.messaging import BluetoothMailboxServer, TextMailbox
+
+server = BluetoothMailboxServer()
+mbox = TextMailbox('greeting', server)
 
 # The server must be started before the client!
-
-from pybricks.messaging import BluetoothMailboxClient, TextMailbox
-
-# This is the name of the remote EV3 or PC we are connecting to.
-server = 'ev3dev'
-
-client = BluetoothMailboxClient()
-mbox = TextMailbox('greeting', client)
-
-print('establishing connection...')
-client.connect(server)
+print('waiting for connection...')
+server.wait_for_connection()
 print('connected!')
-new_message = ""
-ulm = Motor(Port.A)
-urm = Motor(Port.B)
-w = Motor(Port.D)
+# This program uses the two PS4 sticks to control two EV3 Large Servo Motors using tank like controls
 
-while True:
+# Create your objects here.
+left_motor = Motor(Port.B)
+right_motor = Motor(Port.C)
+lower_joint = Motor(Port.D)
+middle_joint = Motor(Port.A)
+left_speed = 0
+right_speed = 0
 
-    mbox.wait()
-    new_message = mbox.read()
+# Locat the event file you want to react to, on my setup the PS4 controller button events
+# are located in /dev/input/event4
+infile_path = "/dev/input/event4"
+in_file = open(infile_path, "rb")
 
-    if new_message == "move upper joint":
-        print(mbox.read())
-        ulm.run(1000)
-        urm.run(-1000)
-    if new_message == "stop upper joint":
-        print(mbox.read())
-        urm.hold()
-        ulm.hold()
-    if new_message == "move upper joint 1":
-        print(mbox.read())
-        ulm.run(-1000)
-        urm.run(1000)
-    if new_message == "move wrist":
-        print(mbox.read())
-        w.run(-100)
-    if new_message == "move wrist 1":
-        print(mbox.read())
-        w.run(100)
-    if new_message == "stop wrist":
-        print(mbox.read())
-        w.hold()
+# Define the format the event data will be read
+# See https://docs.python.org/3/library/struct.html#format-characters for more details
+FORMAT = 'llHHi'
+EVENT_SIZE = struct.calcsize(FORMAT)
+event = in_file.read(EVENT_SIZE)
+
+# A helper function for converting stick values (0 to 255) to more usable numbers (-100 to 100)
+def scale(val, src, dst):
+    return (float(val - src[0]) / (src[1] - src[0])) * (dst[1] - dst[0]) + dst[0]
+
+# Create a loop to react to events
+# This loop react to all main PS4 button and sstick events. I ave left out buttons like
+# share and options, but can easily be added in by referring to the table on the 
+# GitHub page: https://github.com/codeadamca/python-connect-ps4
+while event:
+
+    # Place event data into variables
+    (tv_sec, tv_usec, ev_type, code, value) = struct.unpack(FORMAT, event)
+
+    # If a button was pressed or released
+    if ev_type == 1:
+
+       # React to the X button
+        if code == 304 and value == 1:
+            print("The X button was pressed")
+            lower_joint.run(1000)
+        elif code == 304 and value == 0:
+            print("The x button was released")
+            lower_joint.hold()
+        # React to the Circle button
+        elif code == 305 and value == 0:
+            print("The Circle button was released")
+            mbox.send('stop upper joint')
+        elif code == 305 and value == 1:
+            print("The Circle button was pressed")
+            mbox.send('move upper joint')
+
+        # React to the Triangle button
+        if code == 307 and value == 1:
+            print("The Triangle button was pressed")
+            lower_joint.run(-1000)
+        elif code == 307 and value == 0:
+            print("The triangle button was pressed")
+            lower_joint.hold()
+         
+        # React to the Square button
+        elif code == 308 and value == 0:
+            print("The Square button was released")
+            mbox.send('stop upper joint')
+        elif code == 308 and value == 1:
+            print("The Square button was pressed")
+            mbox.send('move upper joint 1')
+
+        # React to the L1 button
+        elif code == 310 and value == 0:
+            print("The L1 button was released")
+        elif code == 310 and value == 1:
+            print("The L1 button was pressed")
+
+
+        # React to the R1 button
+        elif code == 311 and value == 0:
+            print("The R1 button was released")
+        elif code == 311 and value == 1:
+            print("The R1 button was pressed")
+
+        # React to the L2 button
+        elif code == 312 and value == 0:
+            print("The L2 button was released")
+            mbox.send('stop wrist')
+        elif code == 312 and value == 1:
+            print("The L2 button was pressed")
+            mbox.send('move wrist')
+
+        # React to the R2 button
+        elif code == 313 and value == 0:
+            print("The R2 button was released")
+            mbox.send('stop wrist')
+        elif code == 313 and value == 1:
+            print("The R2 button was pressed")
+            mbox.send('move wrist 1')
+
+
+ 
+    elif ev_type == 3: # Stick was moved
+
+        # The sticks often trigger non-stop events so I have commented this out,
+        # it back in to get stick positions
+        
+        # React to the left stick vertical 
+        if code == 1:
+            left_speed = scale(value, (0,255), (-100, 100))
+        
+        # React to the right stick vertical
+        elif code == 4:
+            right_speed = scale(value, (0,255), (100, -100))
+        
+
+        # React to the Directional pad
+        if code == 16 and value == -1:
+            print("The horizontal directional pad is left")
+        elif code == 16 and value == 1:
+            print("The horizontal directional pad is right")
+        elif code == 16 and value == 0:
+            print("The horizontal directional pad is released")
+
+        elif code == 17 and value == -1:
+            print("The vertical directional pad is up")
+            middle_joint.run(-1000)
+        elif code == 17 and value == 1:
+            print("The horizontal directional pad is down")
+            middle_joint.run(1000)
+        elif code == 17 and value == 0:
+            print("The horizontal directional pad is released")
+            middle_joint.hold()
+
+    # Set motor speed
+    left_motor.dc(left_speed)
+    right_motor.dc(right_speed)
+
+    # Read the next event
+    event = in_file.read(EVENT_SIZE)
+
+in_file.close()
